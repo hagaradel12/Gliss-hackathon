@@ -1,19 +1,22 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Optional, Any
+import json
 import os
 from datetime import datetime
+import openai
 from dotenv import load_dotenv
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
-from groq import Groq
+import pandas as pd
 
 load_dotenv()
 
-app = FastAPI(title="Smart Hair Diagnosis API", version="2.0.0")
+app = FastAPI(title="Hair Advisor API", version="1.0.0")
 
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -22,589 +25,567 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Groq
-LLAMA_API_KEY = os.getenv("LLAMA_API_KEY", "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")
-llama_client = Groq(api_key=LLAMA_API_KEY)
+# Initialize OpenAI
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Product Dataset
-PRODUCTS = [
-    {
-        'id': 1,
-        'name': 'Ultimate Repair',
-        'brand': 'Gliss',
-        'features': 'resistance reconstruction repair strengthening',
-        'target_profile': 'damaged colored dry bleached brittle weak breakage split_ends',
-        'ingredients': 'black_pearl liquid_keratin',
-        'texture_match': 'dry rough brittle',
-        'scalp_match': 'normal dry',
-        'lifestyle_match': 'heat_styling coloring chemical_treatment',
-        'goal_match': 'repair strengthen restore'
-    },
-    {
-        'id': 2,
-        'name': 'Total Repair',
-        'brand': 'Gliss',
-        'features': 'moisturizing suppleness shine hydration',
-        'target_profile': 'dry damaged colored bleached dull',
-        'ingredients': 'hydrolyzed_keratin floral_nectar',
-        'texture_match': 'dry rough dull',
-        'scalp_match': 'normal dry',
-        'lifestyle_match': 'coloring chemical_treatment',
-        'goal_match': 'hydrate smooth shine'
-    },
-    {
-        'id': 3,
-        'name': 'Oil Nutritive',
-        'brand': 'Gliss',
-        'features': 'nourishing smoothness shine anti_split_ends',
-        'target_profile': 'straw damaged brittle dull split_ends breakage',
-        'ingredients': 'omega_9 marula_oil',
-        'texture_match': 'very_dry rough brittle tangled',
-        'scalp_match': 'dry normal',
-        'lifestyle_match': 'heat_styling',
-        'goal_match': 'nourish smooth shine protect'
-    },
-    {
-        'id': 4,
-        'name': 'Aqua Revive',
-        'brand': 'Gliss',
-        'features': 'lightweight hydration healthy no_weighing',
-        'target_profile': 'normal slightly_dry healthy',
-        'ingredients': 'hyaluron_complex marine_algae',
-        'texture_match': 'soft smooth slightly_dry',
-        'scalp_match': 'normal oily',
-        'lifestyle_match': 'minimal_styling frequent_washing',
-        'goal_match': 'maintain hydrate lightweight'
-    },
-    {
-        'id': 5,
-        'name': 'Supreme Length',
-        'brand': 'Gliss',
-        'features': 'instant_fluidity root_control length_care',
-        'target_profile': 'oily_roots dry_ends combination',
-        'ingredients': 'biotin_complex peony_flower',
-        'texture_match': 'soft combination',
-        'scalp_match': 'oily combination',
-        'lifestyle_match': 'frequent_washing',
-        'goal_match': 'balance control length_care'
-    }
-]
+# In-memory storage for user sessions
+user_sessions = {}
 
-# Enhanced Pydantic Models
+# Load hair products dataset from Excel file
+def load_hair_products_dataset():
+    """Load hair products from Excel dataset file"""
+    try:
+        # Read the Excel file
+        df = pd.read_excel('Hackathon_dataset.xlsx')
+        
+        # Convert DataFrame to list of dictionaries
+        products = []
+        for index, row in df.iterrows():
+            product = {
+                'id': index + 1,
+                'name': str(row.get('Product Name', '')),
+                'brand': str(row.get('Brand', '')),
+                'category': str(row.get('Category', '')),
+                'features': str(row.get('Features', '')),
+                'target_hair_types': str(row.get('Target Hair Types', '')),
+                'target_concerns': str(row.get('Target Concerns', '')),
+                'ingredients': str(row.get('Ingredients', '')),
+                'price_range': str(row.get('Price Range', 'budget'))
+            }
+            products.append(product)
+        
+        return products
+    
+    except Exception as e:
+        print(f"Error loading dataset: {e}")
+        # Fallback to default dataset if Excel file fails to load
+        return [
+            {
+                'id': 1,
+                'name': 'Gliss Ultimate Repair',
+                'brand': 'Gliss',
+                'category': 'shampoo',
+                'features': 'repair,hydrating,strengthening',
+                'target_hair_types': 'damaged,colored,dry',
+                'target_concerns': 'damage,breakage,split_ends',
+                'ingredients': 'keratin,argan_oil,biotin',
+                'price_range': 'mid'
+            }
+        ]
+
+# Load the dataset
+HAIR_PRODUCTS_DATASET = load_hair_products_dataset()
+
+# Function to reload dataset
+def reload_dataset():
+    """Reload the dataset from Excel file"""
+    global HAIR_PRODUCTS_DATASET
+    HAIR_PRODUCTS_DATASET = load_hair_products_dataset()
+    return len(HAIR_PRODUCTS_DATASET)
+
+# Pydantic models
+class QuestionResponse(BaseModel):
+    question_id: int
+    answer: Any
+
+class QuestionnaireResponse(BaseModel):
+    session_id: str
+    responses: List[QuestionResponse]
+
+class RecommendationRequest(BaseModel):
+    session_id: str
+    responses: Dict[str, Any]
+
 class Recommendation(BaseModel):
     product_name: str
     brand: str
+    category: str
     score: float
     reasoning: str
     confidence: str
-    detailed_explanation: str
-    hair_routine: str
 
-class DiagnosisRequest(BaseModel):
-    session_id: str
-    q1_hair_feel: str
-    q2_scalp_condition: str
-    q3_hair_behavior: str
-    q4_lifestyle: List[str]
-    q5_hair_goal: str
-
-# Smart Hair Advisor
-class SmartHairAdvisor:
-    def _init_(self):
-        self.products = PRODUCTS
-        self.vectorizer = TfidfVectorizer(
-            max_features=300,
-            lowercase=True,
-            ngram_range=(1, 2),
-            min_df=1
-        )
-        self._prepare_vectors()
+# Hair advisor scoring engine
+class HairAdvisorEngine:
+    def __init__(self):
+        self.vectorizer = TfidfVectorizer()
+        
+    def get_products(self):
+        return HAIR_PRODUCTS_DATASET
     
-    def _prepare_vectors(self):
-        """Create product vectors"""
-        product_texts = [self._create_product_text(p) for p in self.products]
-        self.product_vectors = self.vectorizer.fit_transform(product_texts).toarray()
-        print(f"✅ Prepared vectors for {len(self.products)} products")
+    def encode_user_features(self, responses: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert user responses to numeric features for scoring"""
+        features = {}
+        
+        # Hair condition - handle both single and multiple selections
+        hair_conditions = responses.get('hair_condition', [])
+        if isinstance(hair_conditions, str):
+            hair_conditions = [hair_conditions.lower()]
+        elif isinstance(hair_conditions, list):
+            hair_conditions = [c.lower() for c in hair_conditions]
+        
+        # Calculate condition score based on multiple selections
+        condition_scores = {'dry': 1, 'oily': 2, 'colored': 3, 'damaged': 4}
+        if hair_conditions:
+            features['hair_condition'] = max([condition_scores.get(c, 2) for c in hair_conditions])
+            features['hair_conditions'] = hair_conditions  # Store all conditions
+        else:
+            features['hair_condition'] = 2  # Default to normal
+            features['hair_conditions'] = []
+        
+        # Damage level (1-10 scale)
+        features['damage_level'] = responses.get('damage_level', 5)
+        
+        # Hair texture (1-3 scale)
+        texture_map = {'fine': 1, 'medium': 2, 'coarse': 3}
+        features['hair_texture'] = texture_map.get(responses.get('hair_texture', 'medium'), 2)
+        
+        # Top concerns (binary flags)
+        concerns = responses.get('top_concerns', [])
+        features['damage_concern'] = 1 if 'damage' in concerns or 'breakage' in concerns else 0
+        features['frizz_concern'] = 1 if 'frizz' in concerns else 0
+        features['volume_concern'] = 1 if 'flatness' in concerns or 'volume' in concerns else 0
+        features['dandruff_concern'] = 1 if 'dandruff' in concerns else 0
+        
+        # Routine care level (0-1 scale)
+        routine = responses.get('routine_care', {})
+        features['heat_styling'] = 1 if routine.get('heat_styling', False) else 0
+        features['coloring'] = 1 if routine.get('coloring', False) else 0
+        features['care_level'] = (features['heat_styling'] + features['coloring']) / 2
+        
+        # Hair goal
+        goal_map = {'repair': 1, 'smooth': 2, 'shine': 3, 'volume': 4}
+        features['hair_goal'] = goal_map.get(responses.get('hair_goal', 'smooth'), 2)
+        
+        # Scalp condition
+        scalp_map = {'healthy': 1, 'oily': 2, 'dry': 3, 'sensitive': 4}
+        features['scalp_condition'] = scalp_map.get(responses.get('scalp_condition', 'healthy'), 1)
+        
+        # Weather effects
+        weather = responses.get('weather_effects', {})
+        features['humidity_problem'] = 1 if weather.get('humidity', False) else 0
+        features['sun_damage'] = 1 if weather.get('sun', False) else 0
+        
+        # Hair volume preference
+        volume_map = {'thin': 1, 'medium': 2, 'thick': 3}
+        features['volume_preference'] = volume_map.get(responses.get('hair_volume', 'medium'), 2)
+        
+        return features
     
-    def _create_product_text(self, product: Dict[str, Any]) -> str:
-        """Create comprehensive product text"""
-        parts = [
-            product['name'] ,  # Emphasize name
-            product['brand'],
-            product['features']*3,
-            product['target_profile'] * 2,  # Emphasize target profile
-            product['ingredients'],
-            product['texture_match'] *3,
-            product['scalp_match'],
-            product['lifestyle_match']*2,
-            product['goal_match'] * 2
-        ]
-        return ' '.join(str(p) for p in parts if p).lower()
+    def calculate_base_score(self, user_features: Dict[str, Any], product: Dict[str, Any]) -> float:
+        """Calculate base compatibility score between user and product"""
+        score = 5.0  # Base score
+        
+        # Hair condition matching - handle multiple conditions
+        target_types = product['target_hair_types'].split(',')
+        user_conditions = user_features.get('hair_conditions', [])
+        
+        # Score based on how many user conditions match product targets
+        matches = 0
+        for condition in user_conditions:
+            if condition in target_types:
+                matches += 1
+        
+        # Bonus for multiple matches
+        if matches > 0:
+            score += 2.0 * (matches / len(user_conditions)) if user_conditions else 0
+            if matches == len(user_conditions):  # Perfect match
+                score += 1.0
+        
+        # Damage level matching
+        if user_features['damage_level'] >= 7 and 'damaged' in target_types:
+            score += 1.5
+        elif user_features['damage_level'] <= 3 and 'damaged' not in target_types:
+            score += 1.0
+        
+        # Hair texture matching
+        if user_features['hair_texture'] == 1 and 'fine' in target_types:  # Fine hair
+            score += 1.0
+        elif user_features['hair_texture'] == 3 and 'coarse' in target_types:  # Coarse hair
+            score += 1.0
+        
+        # Concerns matching
+        target_concerns = product['target_concerns'].split(',')
+        if user_features['damage_concern'] and any(concern in target_concerns for concern in ['damage', 'breakage']):
+            score += 1.5
+        if user_features['frizz_concern'] and 'frizz' in target_concerns:
+            score += 1.0
+        if user_features['volume_concern'] and any(concern in target_concerns for concern in ['flatness', 'volume']):
+            score += 1.0
+        if user_features['dandruff_concern'] and 'dandruff' in target_concerns:
+            score += 1.5
+        
+        # Hair goal matching
+        features = product['features'].split(',')
+        if user_features['hair_goal'] == 1 and 'repair' in features:  # Repair goal
+            score += 1.5
+        elif user_features['hair_goal'] == 2 and 'smooth' in features:  # Smooth goal
+            score += 1.5
+        elif user_features['hair_goal'] == 3 and 'shine' in features:  # Shine goal
+            score += 1.5
+        elif user_features['hair_goal'] == 4 and 'volume' in features:  # Volume goal
+            score += 1.5
+        
+        # Care level adjustment
+        if user_features['care_level'] > 0.5 and 'strengthening' in features:
+            score += 1.0
+        
+        # Normalize score to 0-10 range
+        return min(10.0, max(0.0, score))
     
-    def _create_user_profile(self, diagnosis: DiagnosisRequest) -> str:
-        """Create user profile text from 5 questions"""
-        profile_parts = []
+    def extract_llm_insights(self, open_routine: str) -> Dict[str, Any]:
+        """Extract structured insights from Q10 open text using LLM"""
+        if not open_routine or not open_routine.strip():
+            return {}
         
-        # Q1: Hair Feel (texture & damage indicator)
-        q1_mapping = {
-    'soft_smooth': 'soft smooth silky manageable healthy shiny glossy flexible supple',
-    'slightly_rough': 'rough textured coarse frizzy dull dehydrated porous uneven cuticle',
-    'very_dry': 'extremely_dry brittle fragile damaged broken split_ends cracked_cuticle straw_like',
-    'dry': 'dry parched thirsty low_moisture rough textured lackluster'
-}
-        profile_parts.append(q1_mapping.get(diagnosis.q1_hair_feel, '') * 3)
-        
-        # Q2: Scalp Condition
-        q2_mapping = {
-    'normal': 'normal_scalp balanced healthy clean comfortable pH_balanced unproblematic',
-    'oily': 'oily_scalp greasy sebaceous_overactive shiny_surface excess_sebum clogged_pores',
-    'dry_flaky': 'dry_scalp flaky scaling dandruff itchy irritated tight_sensation dehydrated_scalp',
-    'sensitive': 'sensitive_scalp reactive inflamed easily_irritated delicate prone_to_redness'
-}
-        profile_parts.append(q2_mapping.get(diagnosis.q2_scalp_condition, '') * 2)
-        
-        # Q3: Hair Behavior (styling & manageability)
-        q3_mapping = {
-    'holds_style': 'style_retention manageable pliable responsive shape_holding cooperative',
-    'loses_shape': 'limp flat lacking_volume fine_thin hair_weighted_down low_density',
-    'frizzy_humid': 'humidity_reactive frizz_prone hygroscopic expands_moisture unruly flyaways',
-    'tangled': 'easily_tangled knotting matting snarls difficult_comb through high_friction'
-}
-        profile_parts.append(q3_mapping.get(diagnosis.q3_hair_behavior, '') * 3)
-        
-        # Q4: Lifestyle (critical for matching)
-        lifestyle_mapping = {
-    'heat_styling': 'heat_tools thermal_exposure blow_drying flat_iron curling_wand hot_brushes',
-    'coloring': 'color_treated chemical_processing dye bleach highlights toning color_maintenance',
-    'swimming': 'chlorine_exposure salt_water pool_swimming sun_exposure environmental_stress',
-    'minimal': 'low_manipulation natural_styling air_drying gentle_care minimal_processing'
-}
-        for lifestyle in diagnosis.q4_lifestyle:
-            profile_parts.append(lifestyle_mapping.get(lifestyle, lifestyle) * 2)
-        
-        # Q5: Hair Goal (primary objective)
-        q5_mapping = {
-    'repair': 'damage_repair structural_rebuilding strength_restoration split_end_treatment breakage_prevention',
-    'hydrate': 'moisture_retention hydration humectant conditioning quenching moisturization',
-    'smooth': 'sleek_smooth frizz_control shine_enhancement glossiness manageability',
-    'volume': 'volume_boost body_enhancement lift root_volumizing thickness fullness',
-    'maintain': 'maintenance protection preventative_care health_preservation optimal_condition'
-}
-        profile_parts.append(q5_mapping.get(diagnosis.q5_hair_goal, '') * 4)
-        
-        return ' '.join(filter(None, profile_parts)).lower()
-    
-    def _get_llm_match_score(self, user_profile: str, product: Dict[str, Any]) -> float:
-        """Get LLM prediction for match between user profile and product"""
         try:
-            product_description = f"""
-            Product: {product['name']} by {product['brand']}
-            Features: {product['features']}
-            Target Profile: {product['target_profile']}
-            Texture Match: {product['texture_match']}
-            Scalp Match: {product['scalp_match']}
-            Lifestyle Match: {product['lifestyle_match']}
-            Goal Match: {product['goal_match']}
-            """
-            
             prompt = f"""
-            Analyze how well this hair product matches the user's hair profile.
+            Analyze this hair routine description and extract ONLY these specific tags if mentioned:
+            - high_chemical_damage (if bleaching, coloring, perms mentioned)
+            - high_heat_damage (if frequent styling, blow drying, flat iron mentioned)
+            - humidity_frizz (if frizz, humidity problems mentioned)
+            - scalp_issues (if dandruff, itchiness, scalp problems mentioned)
+            - routine_complexity (if multiple products, complex routine mentioned)
+            - neglect_issues (if infrequent washing, lack of care mentioned)
             
-            USER PROFILE: {user_profile}
+            Text: "{open_routine}"
             
-            PRODUCT: {product_description}
-            
-            On a scale of 0 to 10, where 0 is no match and 10 is perfect match, 
-            how well does this product suit the user's hair needs?
-            
-            Return ONLY a single number between 0 and 10, no other text.
+            Respond with ONLY a JSON object containing the tags as keys and true/false as values.
+            Example: {{"high_chemical_damage": true, "humidity_frizz": false}}
             """
             
-            response = llama_client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+            response = openai.chat.completions.create(
+                model="gpt-3.5-turbo",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=10
+                max_tokens=150,
+                temperature=0.1
             )
             
-            llm_score = float(response.choices[0].message.content.strip())
-            # Normalize to 0-1 range for small contribution
-            normalized_score = llm_score / 10.0
-            print(f"🤖 LLM Score for {product['name']}: {llm_score}/10 -> {normalized_score:.2f}")
-            return normalized_score
+            insights = json.loads(response.choices[0].message.content)
+            return insights
             
         except Exception as e:
-            print(f"⚠ LLM error for {product['name']}: {e}")
-            return 0.5  # Neutral score if LLM fails
-
-    def _get_llm_detailed_explanation(self, user_profile: str, product: Dict[str, Any], diagnosis: DiagnosisRequest) -> Dict[str, str]:
-        """Get detailed LLM explanation for the match and hair routine - RUNS AFTER MATCHING"""
-        try:
-            user_context = f"""
-            User Hair Profile:
-            - Hair Feel: {diagnosis.q1_hair_feel}
-            - Scalp Condition: {diagnosis.q2_scalp_condition}
-            - Hair Behavior: {diagnosis.q3_hair_behavior}
-            - Lifestyle Factors: {', '.join(diagnosis.q4_lifestyle)}
-            - Main Goal: {diagnosis.q5_hair_goal}
-            """
-            
-            product_context = f"""
-            Product: {product['name']} by {product['brand']}
-            Key Features: {product['features']}
-            Target Hair Types: {product['target_profile']}
-            Key Ingredients: {product['ingredients']}
-            Best for Scalp Types: {product['scalp_match']}
-            Lifestyle Compatibility: {product['lifestyle_match']}
-            Primary Goals: {product['goal_match']}
-            """
-            
-            prompt = f"""
-            As a hair care expert, analyze this product match and provide detailed recommendations.
-
-            USER CONTEXT:
-            {user_context}
-
-            PRODUCT DETAILS:
-            {product_context}
-
-            Please provide TWO sections:
-
-            SECTION 1 - MATCH EXPLANATION:
-            Explain why this product is a good match for the user's specific hair concerns.
-            Focus on:
-            - How each key ingredient addresses the user's hair issues
-            - Why the product features align with their hair goals
-            - How it suits their scalp condition and lifestyle
-            - Specific benefits for their hair type
-
-            SECTION 2 - HAIR CARE ROUTINE:
-            Create a complete weekly hair care routine using this product line (shampoo, conditioner, hair mask).
-            Include:
-            - Frequency of use for each product
-            - Application techniques
-            - Additional tips for their specific hair concerns
-            - How to maximize results
-
-            Format your response exactly as:
-            EXPLANATION: [your detailed match explanation here]
-            ROUTINE: [your complete hair care routine here]
-            """
-            
-            response = llama_client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
-                max_tokens=800
-            )
-            
-            response_text = response.choices[0].message.content.strip()
-            
-            # Parse the response
-            explanation = ""
-            routine = ""
-            
-            if "EXPLANATION:" in response_text and "ROUTINE:" in response_text:
-                parts = response_text.split("ROUTINE:")
-                explanation = parts[0].replace("EXPLANATION:", "").strip()
-                routine = parts[1].strip()
-            else:
-                # Fallback if format is not followed
-                explanation = response_text
-                routine = "Please consult the product instructions for specific usage guidelines."
-            
-            return {
-                "explanation": explanation,
-                "routine": routine
-            }
-            
-        except Exception as e:
-            print(f"⚠ LLM detailed explanation error for {product['name']}: {e}")
-            return {
-                "explanation": f"This product matches your hair profile based on your {diagnosis.q1_hair_feel} hair feel, {diagnosis.q2_scalp_condition} scalp, and goal of {diagnosis.q5_hair_goal}.",
-                "routine": f"Use {product['name']} shampoo and conditioner 2-3 times weekly. Apply hair mask once weekly for deep treatment. Follow product instructions for best results."
-            }
+            print(f"LLM insight extraction failed: {e}")
+            return {}
     
-    def _calculate_similarity(self, user_text: str) -> List[Dict[str, Any]]:
-        """Calculate cosine similarity with LLM contribution"""
-        user_vector = self.vectorizer.transform([user_text]).toarray()
-        similarities = cosine_similarity(user_vector, self.product_vectors)[0]
+    def apply_llm_adjustment(self, base_score: float, llm_insights: Dict[str, Any], product: Dict[str, Any]) -> float:
+        """Apply LLM insights to adjust base score (max +30% adjustment)"""
+        adjustment = 0.0
+        features = product['features'].split(',')
+        target_concerns = product['target_concerns'].split(',')
         
-        results = []
-        for product, similarity in zip(self.products, similarities):
-            # Base score from cosine similarity
-            base_score = min(10.0, (similarity * 15))
-            
-            # Get LLM contribution (small weight - 20%)
-            llm_contribution = self._get_llm_match_score(user_text, product)
-            llm_bonus = llm_contribution * 2.0  # LLM contributes up to 2 points
-            
-            # Combined score
-            final_score = base_score + llm_bonus
-            
-            results.append({
-                'product': product,
-                'similarity': float(similarity),
-                'score': final_score,
-                'base_score': base_score,
-                'llm_bonus': llm_bonus
-            })
+        # High chemical damage boost for repair products
+        if llm_insights.get('high_chemical_damage') and 'repair' in features:
+            adjustment += 1.0
         
-        return sorted(results, key=lambda x: x['score'], reverse=True)
+        # High heat damage boost for strengthening products
+        if llm_insights.get('high_heat_damage') and 'strengthening' in features:
+            adjustment += 0.8
+        
+        # Humidity frizz boost for anti-frizz products
+        if llm_insights.get('humidity_frizz') and 'anti_frizz' in features:
+            adjustment += 0.7
+        
+        # Scalp issues boost for scalp care products
+        if llm_insights.get('scalp_issues') and 'dandruff' in target_concerns:
+            adjustment += 1.0
+        
+        # Routine complexity boost for multi-purpose products
+        if llm_insights.get('routine_complexity') and len(features) > 2:
+            adjustment += 0.5
+        
+        # Apply maximum 30% adjustment
+        max_adjustment = base_score * 0.3
+        final_adjustment = min(adjustment, max_adjustment)
+        
+        return base_score + final_adjustment
     
-    def _generate_reasoning(self, product: Dict[str, Any], similarity: float, 
-                           diagnosis: DiagnosisRequest) -> str:
-        """Generate smart reasoning"""
+    def generate_reasoning(self, product: Dict[str, Any], user_features: Dict[str, Any], llm_insights: Dict[str, Any]) -> str:
+        """Generate explanation for recommendation using only dataset information"""
         reasons = []
         
-        # Match quality
-        if similarity >= 0.7:
-            reasons.append("Excellent match for your hair profile")
-        elif similarity >= 0.5:
-            reasons.append("Strong fit for your needs")
-        else:
-            reasons.append("Good option for your hair type")
+        # Hair condition match
+        target_types = product['target_hair_types'].split(',')
+        if user_features['damage_level'] >= 7 and 'damaged' in target_types:
+            reasons.append("Perfect for your damaged hair")
         
-        # Hair feel alignment
-        if diagnosis.q1_hair_feel == 'very_dry' and 'repair' in product['features']:
-            reasons.append("Intensive repair for dry, brittle hair")
-        elif diagnosis.q1_hair_feel == 'soft_smooth' and 'lightweight' in product['features']:
-            reasons.append("Maintains healthy hair without weighing down")
+        # Concern matching
+        target_concerns = product['target_concerns'].split(',')
+        if user_features['damage_concern'] and 'damage' in target_concerns:
+            reasons.append("Targets your damage concerns")
+        if user_features['frizz_concern'] and 'frizz' in target_concerns:
+            reasons.append("Addresses frizz issues")
         
-        # Scalp alignment
-        if diagnosis.q2_scalp_condition == 'oily' and 'oily' in product['scalp_match']:
-            reasons.append("Balances oily scalp while nourishing lengths")
+        # Goal matching
+        features = product['features'].split(',')
+        if user_features['hair_goal'] == 1 and 'repair' in features:
+            reasons.append("Supports your repair goals")
+        elif user_features['hair_goal'] == 4 and 'volume' in features:
+            reasons.append("Enhances volume as desired")
         
-        # Goal alignment
-        goal_features = {
-            'repair': ['repair', 'strengthen', 'restore'],
-            'hydrate': ['moisturizing', 'hydration', 'nourish'],
-            'smooth': ['smooth', 'anti_frizz', 'sleek'],
-            'volume': ['volume', 'body', 'lift']
+        # LLM insights
+        if llm_insights.get('high_chemical_damage') and 'repair' in features:
+            reasons.append("Great for chemically processed hair")
+        
+        return ". ".join(reasons) if reasons else "Good overall match for your hair profile"
+    
+    def get_recommendations(self, responses: Dict[str, Any]) -> List[Recommendation]:
+        """Generate product recommendations using hybrid scoring"""
+        # Step 1: Input validation with defaults
+        validated_responses = {
+            'hair_condition': responses.get('hair_condition', []),
+            'damage_level': responses.get('damage_level', 5),
+            'hair_texture': responses.get('hair_texture', 'medium'),
+            'top_concerns': responses.get('top_concerns', []),
+            'routine_care': responses.get('routine_care', {}),
+            'hair_goal': responses.get('hair_goal', 'smooth'),
+            'scalp_condition': responses.get('scalp_condition', 'healthy'),
+            'weather_effects': responses.get('weather_effects', {}),
+            'hair_volume': responses.get('hair_volume', 'medium'),
+            'open_routine': responses.get('open_routine', '')
         }
         
-        goal = diagnosis.q5_hair_goal
-        if goal in goal_features:
-            if any(f in product['features'] for f in goal_features[goal]):
-                reasons.append(f"Targets your {goal} goals effectively")
+        # Step 2: Feature encoding
+        user_features = self.encode_user_features(validated_responses)
         
-        return ". ".join(reasons[:3])
-    
-    def get_recommendations(self, diagnosis: DiagnosisRequest) -> List[Recommendation]:
-        """Generate top 3 recommendations with detailed LLM explanations AFTER matching"""
-        user_text = self._create_user_profile(diagnosis)
-        print(f"\n👤 User Profile: {user_text[:150]}...")
+        # Step 3: Get products and calculate base scores
+        products = self.get_products()
+        product_scores = []
         
-        # First, get the matches using similarity scoring
-        results = self._calculate_similarity(user_text)
-        
-        recommendations = []
-        print(f"\n🎯 Generating detailed explanations for top {min(3, len(results))} matches...")
-        
-        for result in results[:3]:
-            product = result['product']
-            score = result['score']
-            similarity = result['similarity']
+        for product in products:
+            base_score = self.calculate_base_score(user_features, product)
             
-            confidence = "High" if score >= 7.0 else "Medium" if score >= 4.0 else "Low"
-            reasoning = self._generate_reasoning(product, similarity, diagnosis)
+            # Step 4: LLM insight extraction
+            llm_insights = self.extract_llm_insights(validated_responses['open_routine'])
             
-            # NOW get detailed LLM explanation and routine AFTER matching is done
-            print(f"📝 Getting LLM explanation for {product['name']}...")
-            llm_details = self._get_llm_detailed_explanation(user_text, product, diagnosis)
+            # Step 5: Hybrid score adjustment
+            final_score = self.apply_llm_adjustment(base_score, llm_insights, product)
             
-            recommendations.append(Recommendation(
+            # Step 6: Generate reasoning
+            reasoning = self.generate_reasoning(product, user_features, llm_insights)
+            
+            # Step 7: Confidence calculation
+            confidence = "High" if final_score >= 8.0 else "Medium" if final_score >= 6.0 else "Low"
+            
+            product_scores.append(Recommendation(
                 product_name=product['name'],
                 brand=product['brand'],
-                score=round(score, 1),
+                category=product['category'],
+                score=round(final_score, 1),
                 reasoning=reasoning,
-                confidence=confidence,
-                detailed_explanation=llm_details["explanation"],
-                hair_routine=llm_details["routine"]
+                confidence=confidence
             ))
         
-        return recommendations
+        # Step 8: Sort by score and return top 3
+        product_scores.sort(key=lambda x: x.score, reverse=True)
+        
+        # Step 9: Consistency check
+        if not product_scores or product_scores[0].score < 3.0:
+            # Fallback recommendation
+            fallback_product = products[0]
+            return [Recommendation(
+                product_name=fallback_product['name'],
+                brand=fallback_product['brand'],
+                category=fallback_product['category'],
+                score=5.0,
+                reasoning="General recommendation based on your profile",
+                confidence="Medium"
+            )]
+        
+        return product_scores[:3]
 
-# Initialize advisor
-advisor = SmartHairAdvisor()
+# Initialize scoring engine
+scoring_engine = HairAdvisorEngine()
 
-# API Endpoints (remain the same)
+# API endpoints
 @app.get("/")
 async def root():
-    return {"message": "Smart Hair Diagnosis API v2.0"}
+    return {"message": "Hair Advisor API is running!"}
 
 @app.get("/questions")
 async def get_questions():
-    """Get diagnostic questions"""
-    return {
-        "questions": [
-            {
-                "id": 1,
-                "title": "How does your hair usually feel?",
-                "type": "single_choice",
-                "options": [
-                    {"value": "soft_smooth", "label": "Soft, smooth, and easy to manage"},
-                    {"value": "slightly_rough", "label": "Slightly rough, frizzy, or dull"},
-                    {"value": "very_dry", "label": "Very dry, brittle, or tangled"}
-                ]
-            },
-            {
-                "id": 2,
-                "title": "What's your scalp condition?",
-                "type": "single_choice",
-                "options": [
-                    {"value": "normal", "label": "Normal, balanced"},
-                    {"value": "oily", "label": "Oily, gets greasy quickly"},
-                    {"value": "dry_flaky", "label": "Dry or flaky"},
-                    {"value": "sensitive", "label": "Sensitive or itchy"}
-                ]
-            },
-            {
-                "id": 3,
-                "title": "How does your hair behave after styling?",
-                "type": "single_choice",
-                "options": [
-                    {"value": "holds_style", "label": "Holds style well"},
-                    {"value": "loses_shape", "label": "Loses volume/shape quickly"},
-                    {"value": "frizzy_humid", "label": "Gets frizzy in humidity"},
-                    {"value": "tangled", "label": "Tangles easily"}
-                ]
-            },
-            {
-                "id": 4,
-                "title": "Your hair lifestyle",
-                "type": "multiple_choice",
-                "options": [
-                    {"value": "heat_styling", "label": "Heat styling (blow-dry, iron)"},
-                    {"value": "coloring", "label": "Color or chemical treatments"},
-                    {"value": "swimming", "label": "Swimming (pool/ocean)"},
-                    {"value": "minimal", "label": "Minimal styling"}
-                ]
-            },
-            {
-                "id": 5,
-                "title": "What's your main hair goal?",
-                "type": "single_choice",
-                "options": [
-                    {"value": "repair", "label": "Repair damage"},
-                    {"value": "hydrate", "label": "Deep hydration"},
-                    {"value": "smooth", "label": "Smoothness & shine"},
-                    {"value": "volume", "label": "Volume & body"},
-                    {"value": "maintain", "label": "Maintain health"}
-                ]
-            }
-        ]
-    }
+    """Get the questionnaire structure"""
+    questions = [
+        {
+            "id": 1,
+            "type": "card_select",
+            "title": "Hair Condition",
+            "description": "Flip hair-condition cards to select your primary hair condition",
+            "options": ["Dry", "Oily", "Colored", "Damaged"],
+            "required": True
+        },
+        {
+            "id": 2,
+            "type": "damage_slider",
+            "title": "Damage Level",
+            "description": "Slide the bar to indicate your hair damage level",
+            "min": 1,
+            "max": 10,
+            "labels": ["Healthy", "Highly Damaged"],
+            "required": True
+        },
+        {
+            "id": 3,
+            "type": "swipe_choice",
+            "title": "Hair Texture",
+            "description": "Swipe left/right to pick your hair texture",
+            "options": ["Fine", "Medium", "Coarse"],
+            "required": True
+        },
+        {
+            "id": 4,
+            "type": "drag_rank",
+            "title": "Top 2 Hair Concerns",
+            "description": "Drag problems to rank your top 2 concerns",
+            "options": ["Damage", "Frizz", "Volume", "Dandruff", "Split Ends", "Dullness"],
+            "max_selections": 2,
+            "required": True
+        },
+        {
+            "id": 5,
+            "type": "toggle_puzzle",
+            "title": "Routine & Care Level",
+            "description": "Tap icons ON/OFF for your styling and coloring habits",
+            "options": ["Heat Styling", "Coloring", "Frequent Washing", "Professional Treatments"],
+            "required": True
+        },
+        {
+            "id": 6,
+            "type": "treasure_pick",
+            "title": "Main Hair Goal",
+            "description": "Choose 1 glowing goal orb for your main hair objective",
+            "options": ["Repair", "Smooth", "Shine", "Volume"],
+            "required": True
+        },
+        {
+            "id": 7,
+            "type": "emoji_selector",
+            "title": "Scalp Condition",
+            "description": "Pick your scalp condition using expressive emojis",
+            "options": ["😊 Healthy", "😰 Oily", "😫 Dry", "😣 Sensitive"],
+            "required": True
+        },
+        {
+            "id": 8,
+            "type": "puzzle_matching",
+            "title": "Weather Effects",
+            "description": "Drag weather icons to their effects on your hair",
+            "weather_icons": ["☀️ Sun", "💨 Wind", "🌧️ Humidity", "❄️ Cold"],
+            "effects": ["Frizz", "Damage", "Dullness", "Breakage"],
+            "required": True
+        },
+        {
+            "id": 9,
+            "type": "character_builder",
+            "title": "Hair Volume",
+            "description": "Choose character silhouette with your desired hair volume",
+            "options": ["Thin", "Medium", "Thick"],
+            "required": True
+        },
+        {
+            "id": 10,
+            "type": "chat_input",
+            "title": "Open Hair Routine",
+            "description": "Tell us about your current hair routine and any specific concerns",
+            "placeholder": "Describe your current hair care routine, styling habits, or any specific issues...",
+            "required": False
+        }
+    ]
+    return {"questions": questions}
 
-@app.post("/diagnose")
-async def diagnose(request: DiagnosisRequest):
-    """Generate recommendations"""
+@app.post("/recommendations")
+async def get_recommendations(request: RecommendationRequest):
+    """Generate hair product recommendations based on questionnaire responses"""
     try:
-        recommendations = advisor.get_recommendations(request)
+        # Store user responses in session
+        user_sessions[request.session_id] = {
+            'responses': request.responses,
+            'timestamp': datetime.now().isoformat(),
+            'session_id': request.session_id
+        }
+        
+        # Generate recommendations
+        recommendations = scoring_engine.get_recommendations(request.responses)
+        
+        # Store recommendations in session
+        user_sessions[request.session_id]['recommendations'] = [
+            {
+                'product_name': rec.product_name,
+                'brand': rec.brand,
+                'category': rec.category,
+                'score': rec.score,
+                'reasoning': rec.reasoning,
+                'confidence': rec.confidence
+            } for rec in recommendations
+        ]
         
         return {
             "session_id": request.session_id,
             "recommendations": recommendations,
             "timestamp": datetime.now().isoformat()
         }
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Error generating recommendations: {str(e)}")
 
 @app.get("/products")
 async def get_products():
-    """Get all products"""
-    return {"products": PRODUCTS, "count": len(PRODUCTS)}
+    """Get all available products from the dataset"""
+    try:
+        products = scoring_engine.get_products()
+        return {"products": products}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching products: {str(e)}")
 
-def test_matcher():
-    """Test the matching system with different user profiles"""
-    print("\n" + "="*70)
-    print("🧪 TESTING SMART HAIR DIAGNOSIS MATCHER")
-    print("="*70)
-    
-    test_cases = [
-        {
-            "name": "DAMAGED & COLORED HAIR",
-            "profile": DiagnosisRequest(
-                session_id="test1",
-                q1_hair_feel="very_dry",
-                q2_scalp_condition="normal",
-                q3_hair_behavior="tangled",
-                q4_lifestyle=["heat_styling", "coloring"],
-                q5_hair_goal="repair"
-            )
-        },
-        {
-        "name": "OILY SCALP WITH FINE HAIR",
-        "profile": DiagnosisRequest(
-            session_id="test2",
-            q1_hair_feel="soft_smooth",
-            q2_scalp_condition="oily",
-            q3_hair_behavior="loses_shape",
-            q4_lifestyle=["minimal"],
-            q5_hair_goal="volume"
-        )
-    },
-    {
-        "name": "FRIZZ-PRONE CURLY HAIR",
-        "profile": DiagnosisRequest(
-            session_id="test3",
-            q1_hair_feel="slightly_rough",
-            q2_scalp_condition="dry_flaky",
-            q3_hair_behavior="frizzy_humid",
-            q4_lifestyle=["heat_styling"],
-            q5_hair_goal="smooth"
-        )
-    },
-    {
-        "name": "HEALTHY HAIR MAINTENANCE",
-        "profile": DiagnosisRequest(
-            session_id="test4",
-            q1_hair_feel="soft_smooth",
-            q2_scalp_condition="normal",
-            q3_hair_behavior="holds_style",
-            q4_lifestyle=["minimal"],
-            q5_hair_goal="maintain"
-        )
-    },
-    ]
-    
-    for i, test in enumerate(test_cases, 1):
-        print(f"\n{'='*70}")
-        print(f"🎯 TEST {i}: {test['name']}")
-        print(f"{'='*70}")
+@app.get("/session/{session_id}")
+async def get_session(session_id: str):
+    """Get user session data including responses and recommendations"""
+    try:
+        if session_id not in user_sessions:
+            raise HTTPException(status_code=404, detail="Session not found")
         
-        profile = test['profile']
-        print(f"\n📋 USER PROFILE:")
-        print(f"   Hair Feel: {profile.q1_hair_feel}")
-        print(f"   Scalp: {profile.q2_scalp_condition}")
-        print(f"   Behavior: {profile.q3_hair_behavior}")
-        print(f"   Lifestyle: {', '.join(profile.q4_lifestyle)}")
-        print(f"   Goal: {profile.q5_hair_goal}")
-        
-        # Get recommendations
-        recommendations = advisor.get_recommendations(profile)
-        
-        print(f"\n💡 TOP 3 RECOMMENDATIONS:")
-        print("-"*70)
-        
-        for j, rec in enumerate(recommendations, 1):
-            print(f"\n{j}. {rec.product_name} by {rec.brand}")
-            print(f"   📊 Score: {rec.score}/10")
-            print(f"   🎯 Confidence: {rec.confidence}")
-            print(f"   💬 Reasoning: {rec.reasoning}")
-            print(f"\n   🔍 Detailed Explanation:")
-            print(f"   {rec.detailed_explanation}")
-            print(f"\n   💆 Hair Care Routine:")
-            print(f"   {rec.hair_routine}")
-            print("-"*50)
-        
-        print()
-    
-    print("\n" + "="*70)
-    print("✅ ALL TESTS COMPLETE")
-    print("="*70)
-    print("\n💡 TIP: To start the API server, run:")
-    print("   uvicorn main:app --reload\n")
+        return user_sessions[session_id]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching session: {str(e)}")
 
-if _name_ == "_main_":
-    test_matcher()
+@app.get("/sessions")
+async def get_all_sessions():
+    """Get all active sessions (for debugging)"""
+    try:
+        return {
+            "total_sessions": len(user_sessions),
+            "sessions": list(user_sessions.keys()),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching sessions: {str(e)}")
+
+@app.post("/reload-dataset")
+async def reload_dataset_endpoint():
+    """Reload the hair products dataset from Excel file"""
+    try:
+        product_count = reload_dataset()
+        return {
+            "message": "Dataset reloaded successfully",
+            "product_count": product_count,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reloading dataset: {str(e)}")
+
+@app.get("/dataset-info")
+async def get_dataset_info():
+    """Get information about the loaded dataset"""
+    try:
+        return {
+            "total_products": len(HAIR_PRODUCTS_DATASET),
+            "brands": list(set([product['brand'] for product in HAIR_PRODUCTS_DATASET])),
+            "categories": list(set([product['category'] for product in HAIR_PRODUCTS_DATASET])),
+            "price_ranges": list(set([product['price_range'] for product in HAIR_PRODUCTS_DATASET])),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting dataset info: {str(e)}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
