@@ -2,7 +2,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
-import sqlite3
 import json
 import os
 from datetime import datetime
@@ -29,119 +28,100 @@ app.add_middleware(
 # Initialize OpenAI
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Database setup
-def init_db():
-    conn = sqlite3.connect('hair_advisor.db')
-    cursor = conn.cursor()
-    
-    # Products table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS products (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            brand TEXT NOT NULL,
-            category TEXT NOT NULL,
-            features TEXT NOT NULL,
-            target_hair_types TEXT NOT NULL,
-            target_concerns TEXT NOT NULL,
-            ingredients TEXT NOT NULL,
-            price_range TEXT NOT NULL,
-            score_weight INTEGER DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # User responses table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_responses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id TEXT NOT NULL,
-            hair_condition TEXT,
-            damage_level INTEGER,
-            hair_texture TEXT,
-            top_concerns TEXT,
-            routine_care TEXT,
-            hair_goal TEXT,
-            scalp_condition TEXT,
-            weather_effects TEXT,
-            hair_volume TEXT,
-            open_routine TEXT,
-            recommendations TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Insert sample products
-    sample_products = [
-        {
-            'name': 'Gliss Ultimate Repair',
-            'brand': 'Gliss',
-            'category': 'shampoo',
-            'features': 'repair,hydrating,strengthening',
-            'target_hair_types': 'damaged,colored,dry',
-            'target_concerns': 'damage,breakage,split_ends',
-            'ingredients': 'keratin,argan_oil,biotin',
-            'price_range': 'mid'
-        },
-        {
-            'name': 'L\'Oreal Elvive Total Repair',
-            'brand': 'L\'Oreal',
-            'category': 'conditioner',
-            'features': 'repair,moisturizing,anti_frizz',
-            'target_hair_types': 'damaged,oily,medium',
-            'target_concerns': 'damage,frizz,dullness',
-            'ingredients': 'ceramide,vitamin_e,proteins',
-            'price_range': 'mid'
-        },
-        {
-            'name': 'Pantene Pro-V Volume',
-            'brand': 'Pantene',
-            'category': 'shampoo',
-            'features': 'volume,thickening,lightweight',
-            'target_hair_types': 'fine,thin,oily',
-            'target_concerns': 'flatness,lack_volume,oiliness',
-            'ingredients': 'pro_vitamins,caffeine,lightweight_polymers',
-            'price_range': 'budget'
-        },
-        {
-            'name': 'Kerastase Resistance',
-            'brand': 'Kerastase',
-            'category': 'treatment',
-            'features': 'repair,strengthening,luxury',
-            'target_hair_types': 'damaged,colored,coarse',
-            'target_concerns': 'severe_damage,breakage,chemical_damage',
-            'ingredients': 'ceramides,keratin,amino_acids',
-            'price_range': 'luxury'
-        },
-        {
-            'name': 'Head & Shoulders Classic',
-            'brand': 'Head & Shoulders',
-            'category': 'shampoo',
-            'features': 'anti_dandruff,gentle,everyday',
-            'target_hair_types': 'oily,normal,sensitive',
-            'target_concerns': 'dandruff,itchiness,oily_scalp',
-            'ingredients': 'pyrithione_zinc,gentle_surfactants',
-            'price_range': 'budget'
-        }
-    ]
-    
-    cursor.execute('SELECT COUNT(*) FROM products')
-    if cursor.fetchone()[0] == 0:
-        for product in sample_products:
-            cursor.execute('''
-                INSERT INTO products (name, brand, category, features, target_hair_types, target_concerns, ingredients, price_range)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                product['name'], product['brand'], product['category'],
-                product['features'], product['target_hair_types'],
-                product['target_concerns'], product['ingredients'], product['price_range']
-            ))
-    
-    conn.commit()
-    conn.close()
+# In-memory storage for user sessions
+user_sessions = {}
 
-# Initialize database on startup
-init_db()
+# Hair products dataset
+HAIR_PRODUCTS_DATASET = [
+    {
+        'id': 1,
+        'name': 'Gliss Ultimate Repair',
+        'brand': 'Gliss',
+        'category': 'shampoo',
+        'features': 'repair,hydrating,strengthening',
+        'target_hair_types': 'damaged,colored,dry',
+        'target_concerns': 'damage,breakage,split_ends',
+        'ingredients': 'keratin,argan_oil,biotin',
+        'price_range': 'mid'
+    },
+    {
+        'id': 2,
+        'name': 'L\'Oreal Elvive Total Repair',
+        'brand': 'L\'Oreal',
+        'category': 'conditioner',
+        'features': 'repair,moisturizing,anti_frizz',
+        'target_hair_types': 'damaged,oily,medium',
+        'target_concerns': 'damage,frizz,dullness',
+        'ingredients': 'ceramide,vitamin_e,proteins',
+        'price_range': 'mid'
+    },
+    {
+        'id': 3,
+        'name': 'Pantene Pro-V Volume',
+        'brand': 'Pantene',
+        'category': 'shampoo',
+        'features': 'volume,thickening,lightweight',
+        'target_hair_types': 'fine,thin,oily',
+        'target_concerns': 'flatness,lack_volume,oiliness',
+        'ingredients': 'pro_vitamins,caffeine,lightweight_polymers',
+        'price_range': 'budget'
+    },
+    {
+        'id': 4,
+        'name': 'Kerastase Resistance',
+        'brand': 'Kerastase',
+        'category': 'treatment',
+        'features': 'repair,strengthening,luxury',
+        'target_hair_types': 'damaged,colored,coarse',
+        'target_concerns': 'severe_damage,breakage,chemical_damage',
+        'ingredients': 'ceramides,keratin,amino_acids',
+        'price_range': 'luxury'
+    },
+    {
+        'id': 5,
+        'name': 'Head & Shoulders Classic',
+        'brand': 'Head & Shoulders',
+        'category': 'shampoo',
+        'features': 'anti_dandruff,gentle,everyday',
+        'target_hair_types': 'oily,normal,sensitive',
+        'target_concerns': 'dandruff,itchiness,oily_scalp',
+        'ingredients': 'pyrithione_zinc,gentle_surfactants',
+        'price_range': 'budget'
+    },
+    {
+        'id': 6,
+        'name': 'Garnier Fructis Smoothing',
+        'brand': 'Garnier',
+        'category': 'conditioner',
+        'features': 'smoothing,anti_frizz,nourishing',
+        'target_hair_types': 'curly,frizzy,medium',
+        'target_concerns': 'frizz,unmanageability,roughness',
+        'ingredients': 'avocado_oil,shea_butter,vitamin_e',
+        'price_range': 'budget'
+    },
+    {
+        'id': 7,
+        'name': 'Moroccanoil Treatment',
+        'brand': 'Moroccanoil',
+        'category': 'treatment',
+        'features': 'shine,smoothing,heat_protection',
+        'target_hair_types': 'all,damaged,colored',
+        'target_concerns': 'dullness,frizz,heat_damage',
+        'ingredients': 'argan_oil,linseed_extract,antioxidants',
+        'price_range': 'luxury'
+    },
+    {
+        'id': 8,
+        'name': 'OGX Thick & Full Biotin',
+        'brand': 'OGX',
+        'category': 'shampoo',
+        'features': 'volume,thickening,strengthening',
+        'target_hair_types': 'fine,thin,damaged',
+        'target_concerns': 'flatness,weakness,lack_volume',
+        'ingredients': 'biotin,collagen,wheat_protein',
+        'price_range': 'mid'
+    }
+]
 
 # Pydantic models
 class QuestionResponse(BaseModel):
@@ -167,25 +147,30 @@ class Recommendation(BaseModel):
 # Hair advisor scoring engine
 class HairAdvisorEngine:
     def __init__(self):
-        self.conn = sqlite3.connect('hair_advisor.db')
         self.vectorizer = TfidfVectorizer()
         
     def get_products(self):
-        cursor = self.conn.cursor()
-        cursor.execute('SELECT * FROM products')
-        columns = [description[0] for description in cursor.description]
-        products = []
-        for row in cursor.fetchall():
-            products.append(dict(zip(columns, row)))
-        return products
+        return HAIR_PRODUCTS_DATASET
     
     def encode_user_features(self, responses: Dict[str, Any]) -> Dict[str, Any]:
         """Convert user responses to numeric features for scoring"""
         features = {}
         
-        # Hair condition (1-4 scale)
-        condition_map = {'dry': 1, 'oily': 2, 'colored': 3, 'damaged': 4}
-        features['hair_condition'] = condition_map.get(responses.get('hair_condition', 'normal'), 2)
+        # Hair condition - handle both single and multiple selections
+        hair_conditions = responses.get('hair_condition', [])
+        if isinstance(hair_conditions, str):
+            hair_conditions = [hair_conditions.lower()]
+        elif isinstance(hair_conditions, list):
+            hair_conditions = [c.lower() for c in hair_conditions]
+        
+        # Calculate condition score based on multiple selections
+        condition_scores = {'dry': 1, 'oily': 2, 'colored': 3, 'damaged': 4}
+        if hair_conditions:
+            features['hair_condition'] = max([condition_scores.get(c, 2) for c in hair_conditions])
+            features['hair_conditions'] = hair_conditions  # Store all conditions
+        else:
+            features['hair_condition'] = 2  # Default to normal
+            features['hair_conditions'] = []
         
         # Damage level (1-10 scale)
         features['damage_level'] = responses.get('damage_level', 5)
@@ -230,18 +215,21 @@ class HairAdvisorEngine:
         """Calculate base compatibility score between user and product"""
         score = 5.0  # Base score
         
-        # Hair condition matching
+        # Hair condition matching - handle multiple conditions
         target_types = product['target_hair_types'].split(',')
-        user_condition = user_features['hair_condition']
+        user_conditions = user_features.get('hair_conditions', [])
         
-        if user_condition == 1 and 'dry' in target_types:  # Dry hair
-            score += 2.0
-        elif user_condition == 2 and 'oily' in target_types:  # Oily hair
-            score += 2.0
-        elif user_condition == 3 and 'colored' in target_types:  # Colored hair
-            score += 2.0
-        elif user_condition == 4 and 'damaged' in target_types:  # Damaged hair
-            score += 2.0
+        # Score based on how many user conditions match product targets
+        matches = 0
+        for condition in user_conditions:
+            if condition in target_types:
+                matches += 1
+        
+        # Bonus for multiple matches
+        if matches > 0:
+            score += 2.0 * (matches / len(user_conditions)) if user_conditions else 0
+            if matches == len(user_conditions):  # Perfect match
+                score += 1.0
         
         # Damage level matching
         if user_features['damage_level'] >= 7 and 'damaged' in target_types:
@@ -384,7 +372,7 @@ class HairAdvisorEngine:
         """Generate product recommendations using hybrid scoring"""
         # Step 1: Input validation with defaults
         validated_responses = {
-            'hair_condition': responses.get('hair_condition', 'normal'),
+            'hair_condition': responses.get('hair_condition', []),
             'damage_level': responses.get('damage_level', 5),
             'hair_texture': responses.get('hair_texture', 'medium'),
             'top_concerns': responses.get('top_concerns', []),
@@ -548,34 +536,27 @@ async def get_questions():
 async def get_recommendations(request: RecommendationRequest):
     """Generate hair product recommendations based on questionnaire responses"""
     try:
-        # Store user responses
-        conn = sqlite3.connect('hair_advisor.db')
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT INTO user_responses (
-                session_id, hair_condition, damage_level, hair_texture,
-                top_concerns, routine_care, hair_goal, scalp_condition,
-                weather_effects, hair_volume, open_routine
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            request.session_id,
-            request.responses.get('hair_condition'),
-            request.responses.get('damage_level'),
-            request.responses.get('hair_texture'),
-            json.dumps(request.responses.get('top_concerns', [])),
-            json.dumps(request.responses.get('routine_care', {})),
-            request.responses.get('hair_goal'),
-            request.responses.get('scalp_condition'),
-            json.dumps(request.responses.get('weather_effects', {})),
-            request.responses.get('hair_volume'),
-            request.responses.get('open_routine', '')
-        ))
-        conn.commit()
-        conn.close()
+        # Store user responses in session
+        user_sessions[request.session_id] = {
+            'responses': request.responses,
+            'timestamp': datetime.now().isoformat(),
+            'session_id': request.session_id
+        }
         
         # Generate recommendations
         recommendations = scoring_engine.get_recommendations(request.responses)
+        
+        # Store recommendations in session
+        user_sessions[request.session_id]['recommendations'] = [
+            {
+                'product_name': rec.product_name,
+                'brand': rec.brand,
+                'category': rec.category,
+                'score': rec.score,
+                'reasoning': rec.reasoning,
+                'confidence': rec.confidence
+            } for rec in recommendations
+        ]
         
         return {
             "session_id": request.session_id,
@@ -588,12 +569,35 @@ async def get_recommendations(request: RecommendationRequest):
 
 @app.get("/products")
 async def get_products():
-    """Get all available products"""
+    """Get all available products from the dataset"""
     try:
         products = scoring_engine.get_products()
         return {"products": products}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching products: {str(e)}")
+
+@app.get("/session/{session_id}")
+async def get_session(session_id: str):
+    """Get user session data including responses and recommendations"""
+    try:
+        if session_id not in user_sessions:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        return user_sessions[session_id]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching session: {str(e)}")
+
+@app.get("/sessions")
+async def get_all_sessions():
+    """Get all active sessions (for debugging)"""
+    try:
+        return {
+            "total_sessions": len(user_sessions),
+            "sessions": list(user_sessions.keys()),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching sessions: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
