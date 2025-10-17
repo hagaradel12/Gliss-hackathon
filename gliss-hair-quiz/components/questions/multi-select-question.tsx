@@ -16,12 +16,12 @@ export default function MultiSelectQuestion({ options, answer = [], onAnswer }: 
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto">
+    <div className="grid grid-cols-3 gap-3 max-w-2xl mx-auto">
       {options.map((option) => (
         <button
           key={option.value}
           onClick={() => handleToggle(option.value)}
-          className={`p-6 rounded-lg font-light text-base transition-all duration-300 ${
+          className={`p-4 rounded-lg font-light text-base transition-all duration-300 min-h-[80px] ${
             answer.includes(option.value)
               ? "bg-accent text-background shadow-lg"
               : "bg-muted text-foreground hover:bg-muted/80"

@@ -26,6 +26,7 @@ export default function Question({ question, answer, onAnswer }: QuestionProps) 
       {question.type === "multi-select" && (
         <MultiSelectQuestion options={question.options} answer={answer} onAnswer={onAnswer} />
       )}
+      {question.type === "range" && <RangeQuestion options={question.options} answer={answer} onAnswer={onAnswer} />}
     </div>
   )
 }

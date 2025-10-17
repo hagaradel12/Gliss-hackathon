@@ -3,12 +3,45 @@ import ProductCarousel from "@/components/product-carousel"
 
 interface ResultsPageProps {
   answers: Record<number, any>
+  apiResults: any
   onRetake: () => void
 }
 
-export default function ResultsPage({ answers, onRetake }: ResultsPageProps) {
-  const hairType = determineHairType(answers)
-  const recommendations = getRecommendations(hairType)
+export default function ResultsPage({ answers, apiResults, onRetake }: ResultsPageProps) {
+  // Show loading state while waiting for API results
+  if (!apiResults) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-lg">Getting your personalized recommendations... ✨</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show error state if API failed
+  if (apiResults.error) {
+    return (
+      <div className="min-h-screen bg-background px-4 py-8">
+        <div className="max-w-4xl mx-auto text-center">
+          <h1 className="text-3xl font-bold mb-4">Oops! 😅</h1>
+          <p className="text-xl text-gray-600 mb-8">{apiResults.error}</p>
+          <button
+            onClick={onRetake}
+            className="bg-primary text-white px-6 py-3 rounded-lg hover:bg-primary-dark transition-colors"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const { recommendations } = apiResults
+
+  // Transform API recommendations to match your frontend format
+  const transformedRecommendations = transformApiResults(recommendations)
 
   return (
     <div className="min-h-screen bg-background px-4 py-12">
@@ -23,16 +56,62 @@ export default function ResultsPage({ answers, onRetake }: ResultsPageProps) {
 
         {/* Hair Type Result */}
         <div className="bg-muted rounded-lg p-8 md:p-12 mb-12 text-center">
-          <p className="text-sm text-muted-foreground uppercase tracking-widest mb-4">Your Hair Type</p>
-          <h2 className="text-4xl md:text-5xl font-light text-foreground mb-6 capitalize">{hairType.name}</h2>
-          <p className="text-lg text-foreground leading-relaxed max-w-2xl mx-auto">{hairType.description}</p>
+          <p className="text-sm text-muted-foreground uppercase tracking-widest mb-4">Your Perfect Match</p>
+          <h2 className="text-4xl md:text-5xl font-light text-foreground mb-6 capitalize">
+            {transformedRecommendations.hairType.name}
+          </h2>
+          <p className="text-lg text-foreground leading-relaxed max-w-2xl mx-auto">
+            {transformedRecommendations.hairType.description}
+          </p>
+        </div>
+
+        {/* Product Carousel - Show top 3 recommendations from API */}
+        <div className="mb-16">
+          <h3 className="text-2xl font-light text-foreground mb-8 text-center">Your Personalized Recommendations</h3>
+          <div className="space-y-6">
+            {recommendations.map((rec: any, index: number) => (
+              <div key={index} className="bg-white rounded-lg shadow-md p-6 border">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h2 className="text-xl font-semibold">{rec.product_name}</h2>
+                    <p className="text-gray-600">{rec.brand}</p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-bold text-primary">{rec.score}/10</div>
+                    <span className={`px-2 py-1 rounded-full text-xs ${
+                      rec.confidence === 'High' ? 'bg-green-100 text-green-800' :
+                      rec.confidence === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-blue-100 text-blue-800'
+                    }`}>
+                      {rec.confidence} Confidence
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="mb-4">
+                  <h3 className="font-semibold mb-2">Why this works for you:</h3>
+                  <p className="text-gray-700">{rec.reasoning}</p>
+                </div>
+                
+                <div className="mb-4">
+                  <h3 className="font-semibold mb-2">Detailed Analysis:</h3>
+                  <p className="text-gray-700">{rec.detailed_explanation}</p>
+                </div>
+                
+                <div>
+                  <h3 className="font-semibold mb-2">Your Hair Care Routine:</h3>
+                  <p className="text-gray-700">{rec.hair_routine}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Ingredients Section */}
         <div className="mb-16">
-          <h3 className="text-2xl font-light text-foreground mb-8 text-center">Key Ingredients You Need</h3>
+          <h3 className="text-2xl font-light text-foreground mb-8 text-center">Key Benefits For Your Hair</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {recommendations.ingredients.map((ingredient, index) => (
+            {transformedRecommendations.ingredients.map((ingredient, index) => (
               <div key={index} className="bg-muted rounded-lg p-6 text-center">
                 <p className="text-accent font-semibold mb-2">{ingredient.name}</p>
                 <p className="text-sm text-muted-foreground">{ingredient.benefit}</p>
@@ -41,17 +120,11 @@ export default function ResultsPage({ answers, onRetake }: ResultsPageProps) {
           </div>
         </div>
 
-        {/* Product Carousel */}
-        <div className="mb-16">
-          <h3 className="text-2xl font-light text-foreground mb-8 text-center">Recommended Products</h3>
-          <ProductCarousel products={recommendations.products} />
-        </div>
-
         {/* Routine Section */}
         <div className="bg-muted rounded-lg p-8 md:p-12 mb-12">
-          <h3 className="text-2xl font-light text-foreground mb-8 text-center">Your Hair Routine</h3>
+          <h3 className="text-2xl font-light text-foreground mb-8 text-center">Your Hair Care Routine</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {recommendations.routine.map((step, index) => (
+            {transformedRecommendations.routine.map((step, index) => (
               <div key={index} className="text-center">
                 <div className="w-12 h-12 rounded-full bg-accent text-background flex items-center justify-center font-semibold mx-auto mb-4">
                   {index + 1}
@@ -77,35 +150,67 @@ export default function ResultsPage({ answers, onRetake }: ResultsPageProps) {
   )
 }
 
-function determineHairType(answers: Record<number, any>) {
-  // Simple logic to determine hair type based on answers
-  const texture = answers[1]
-  const elasticity = answers[2]
-  const damage = answers[4]
+// Helper function to transform API results to your frontend format
+function transformApiResults(recommendations: any[]) {
+  if (!recommendations || recommendations.length === 0) {
+    return getFallbackRecommendations()
+  }
 
-  if (texture === "very_dry" || elasticity === "often") {
-    return {
-      name: "Damaged & Dry Hair",
-      description:
-        "Your hair needs intensive repair and hydration. Focus on nourishing treatments and protective styling to restore strength and moisture.",
-    }
-  } else if (texture === "rough" || elasticity === "sometimes") {
-    return {
-      name: "Compromised Hair",
-      description:
-        "Your hair shows signs of damage and needs targeted care. A balanced routine with strengthening and moisturizing products will help restore vitality.",
-    }
-  } else {
-    return {
-      name: "Healthy Hair",
-      description:
-        "Your hair is in good condition! Maintain its health with a consistent routine using quality products that preserve moisture and strength.",
-    }
+  // Use the top recommendation to determine hair type
+  const topRecommendation = recommendations[0]
+  
+  return {
+    hairType: {
+      name: topRecommendation.product_name,
+      description: topRecommendation.reasoning
+    },
+    ingredients: [
+      { 
+        name: "Intensive Repair", 
+        benefit: "Targets damage and strengthens hair structure" 
+      },
+      { 
+        name: "Deep Hydration", 
+        benefit: "Restores moisture and prevents breakage" 
+      },
+      { 
+        name: "Protective Care", 
+        benefit: "Shields from heat and environmental damage" 
+      },
+    ],
+    products: recommendations.map(rec => ({
+      name: rec.product_name,
+      brand: rec.brand,
+      score: rec.score,
+      confidence: rec.confidence,
+      reasoning: rec.reasoning,
+      detailed_explanation: rec.detailed_explanation,
+      hair_routine: rec.hair_routine
+    })),
+    routine: [
+      {
+        title: "Cleanse & Prep",
+        description: "Start with the recommended shampoo to gently cleanse and prepare your hair",
+      },
+      {
+        title: "Treat & Condition",
+        description: "Apply conditioner focusing on mid-lengths to ends for optimal results",
+      },
+      {
+        title: "Protect & Maintain",
+        description: "Follow the personalized routine for long-lasting hair health",
+      },
+    ],
   }
 }
 
-function getRecommendations(hairType: any) {
+// Fallback in case API returns no results
+function getFallbackRecommendations() {
   return {
+    hairType: {
+      name: "Personalized Hair Care",
+      description: "Based on your unique hair profile, we've selected the perfect products to address your specific needs and goals."
+    },
     ingredients: [
       { name: "Keratin", benefit: "Strengthens and repairs damaged strands" },
       { name: "Argan Oil", benefit: "Provides deep hydration and shine" },
@@ -113,22 +218,19 @@ function getRecommendations(hairType: any) {
     ],
     products: [
       {
-        name: "Repair Shampoo",
-        image: "/luxury-hair-shampoo-bottle-gold.jpg",
-      },
-      {
-        name: "Nourishing Conditioner",
-        image: "/luxury-hair-conditioner-bottle.jpg",
-      },
-      {
-        name: "Hair Mask Treatment",
-        image: "/luxury-hair-mask-treatment.jpg",
-      },
+        name: "Ultimate Repair Shampoo",
+        brand: "Gliss",
+        score: 8.5,
+        confidence: "High",
+        reasoning: "Excellent match for your hair profile",
+        detailed_explanation: "This product is specifically formulated to address your hair concerns with targeted ingredients.",
+        hair_routine: "Use 2-3 times weekly with the matching conditioner for best results."
+      }
     ],
     routine: [
       {
         title: "Cleanse",
-        description: "Use our repair shampoo 2-3 times weekly for gentle cleansing",
+        description: "Use recommended shampoo 2-3 times weekly for gentle cleansing",
       },
       {
         title: "Condition",
@@ -136,7 +238,7 @@ function getRecommendations(hairType: any) {
       },
       {
         title: "Treat",
-        description: "Use hair mask once weekly for intensive repair",
+        description: "Follow your personalized routine for optimal results",
       },
     ],
   }
