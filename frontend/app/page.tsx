@@ -110,7 +110,11 @@ export default function HairAdvisor() {
 
     switch (question.type) {
       case 'card_select':
-        return <CardSelectGame {...commonProps} />
+        return <CardSelectGame 
+          onAnswer={(answer) => handleAnswer(questionNumber, answer)}
+          onSkip={() => nextQuestion()}
+          currentAnswer={responses[questionNumber]}
+        />
       case 'damage_slider':
         return <DamageSlider {...commonProps} />
       case 'swipe_choice':

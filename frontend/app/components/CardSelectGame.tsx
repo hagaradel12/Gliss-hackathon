@@ -1,100 +1,48 @@
-'use client'
+"use client"
 
-import { useState } from 'react'
-import { motion } from 'framer-motion'
-
-interface CardSelectGameProps {
-  question: any
-  questionNumber: number
-  onAnswer: (questionId: number, answer: any) => void
-  currentAnswer?: any
+interface Question1Props {
+  onAnswer: (answer: string[]) => void
+  onSkip: () => void
+  currentAnswer?: string[]
 }
 
-const CardSelectGame = ({ question, questionNumber, onAnswer, currentAnswer }: CardSelectGameProps) => {
-  const [selectedCard, setSelectedCard] = useState(currentAnswer || null)
+export default function Question1({ onAnswer, onSkip, currentAnswer = [] }: Question1Props) {
+  const conditions = ["Dry", "Oily", "Colored", "Damaged"]
 
-  const handleCardSelect = (option: string) => {
-    setSelectedCard(option)
-    onAnswer(questionNumber, option.toLowerCase())
-  }
-
-  const cardColors = {
-    dry: 'from-yellow-400 to-orange-500',
-    oily: 'from-green-400 to-emerald-500',
-    colored: 'from-purple-400 to-violet-500',
-    damaged: 'from-red-400 to-rose-500'
+  const toggleCondition = (condition: string) => {
+    const updated = currentAnswer.includes(condition)
+      ? currentAnswer.filter((c) => c !== condition)
+      : [...currentAnswer, condition]
+    onAnswer(updated)
   }
 
   return (
-    <div className="text-center">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mb-8"
-      >
-        <h2 className="text-3xl font-bold text-gray-800 mb-4">{question.title}</h2>
-        <p className="text-lg text-gray-600">{question.description}</p>
-      </motion.div>
+    <div>
+      <h2 className="text-4xl font-black text-black mb-2">Hair Condition</h2>
+      <p className="text-gray-600 mb-10 font-semibold text-lg">Select all that apply to your hair</p>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-6 max-w-4xl mx-auto">
-        {question.options.map((option: string, index: number) => {
-          const isSelected = selectedCard === option.toLowerCase()
-          const colorClass = cardColors[option.toLowerCase() as keyof typeof cardColors] || 'from-gray-400 to-gray-500'
-          
-          return (
-            <motion.div
-              key={option}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: index * 0.1 }}
-              className="card-flip cursor-pointer"
-              onClick={() => handleCardSelect(option)}
-            >
-              <div className={`card-inner ${isSelected ? 'scale-110' : ''} transition-transform duration-300`}>
-                <div className={`card-front bg-gradient-to-br ${colorClass} text-white shadow-lg`}>
-                  <div className="text-center">
-                    <div className="text-4xl mb-2">💇‍♀️</div>
-                    <div className="text-sm font-medium opacity-80">Tap to reveal</div>
-                  </div>
-                </div>
-                <div className={`card-back bg-gradient-to-br ${colorClass} text-white shadow-lg`}>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold">{option}</div>
-                    {isSelected && (
-                      <motion.div
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        className="mt-2"
-                      >
-                        <div className="w-6 h-6 bg-white rounded-full flex items-center justify-center mx-auto">
-                          <span className="text-green-500 text-lg">✓</span>
-                        </div>
-                      </motion.div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          )
-        })}
+      <div className="grid grid-cols-2 gap-4 mb-8">
+        {conditions.map((condition) => (
+          <button
+            key={condition}
+            onClick={() => toggleCondition(condition)}
+            className={`p-6 rounded-2xl font-bold text-lg transition-all transform hover:scale-105 active:scale-95 ${
+              currentAnswer.includes(condition)
+                ? "bg-black text-yellow-400 shadow-lg border-2 border-yellow-400"
+                : "bg-gray-100 text-black hover:bg-gray-200 border-2 border-transparent"
+            }`}
+          >
+            {condition}
+          </button>
+        ))}
       </div>
 
-      {selectedCard && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-8"
-        >
-          <div className="inline-flex items-center space-x-2 bg-white/80 backdrop-blur-sm rounded-full px-6 py-3 shadow-lg">
-            <span className="text-lg">✨</span>
-            <span className="text-lg font-medium text-gray-700">
-              Great choice! {selectedCard.charAt(0).toUpperCase() + selectedCard.slice(1)} hair
-            </span>
-          </div>
-        </motion.div>
-      )}
+      <button
+        onClick={onSkip}
+        className="w-full text-gray-500 hover:text-gray-700 font-semibold py-2 px-4 rounded-lg transition-all text-sm uppercase tracking-wider"
+      >
+        Skip Question
+      </button>
     </div>
   )
 }
-
-export default CardSelectGame
