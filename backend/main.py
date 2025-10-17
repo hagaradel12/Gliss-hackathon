@@ -31,97 +31,57 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 # In-memory storage for user sessions
 user_sessions = {}
 
-# Hair products dataset
-HAIR_PRODUCTS_DATASET = [
-    {
-        'id': 1,
-        'name': 'Gliss Ultimate Repair',
-        'brand': 'Gliss',
-        'category': 'shampoo',
-        'features': 'repair,hydrating,strengthening',
-        'target_hair_types': 'damaged,colored,dry',
-        'target_concerns': 'damage,breakage,split_ends',
-        'ingredients': 'keratin,argan_oil,biotin',
-        'price_range': 'mid'
-    },
-    {
-        'id': 2,
-        'name': 'L\'Oreal Elvive Total Repair',
-        'brand': 'L\'Oreal',
-        'category': 'conditioner',
-        'features': 'repair,moisturizing,anti_frizz',
-        'target_hair_types': 'damaged,oily,medium',
-        'target_concerns': 'damage,frizz,dullness',
-        'ingredients': 'ceramide,vitamin_e,proteins',
-        'price_range': 'mid'
-    },
-    {
-        'id': 3,
-        'name': 'Pantene Pro-V Volume',
-        'brand': 'Pantene',
-        'category': 'shampoo',
-        'features': 'volume,thickening,lightweight',
-        'target_hair_types': 'fine,thin,oily',
-        'target_concerns': 'flatness,lack_volume,oiliness',
-        'ingredients': 'pro_vitamins,caffeine,lightweight_polymers',
-        'price_range': 'budget'
-    },
-    {
-        'id': 4,
-        'name': 'Kerastase Resistance',
-        'brand': 'Kerastase',
-        'category': 'treatment',
-        'features': 'repair,strengthening,luxury',
-        'target_hair_types': 'damaged,colored,coarse',
-        'target_concerns': 'severe_damage,breakage,chemical_damage',
-        'ingredients': 'ceramides,keratin,amino_acids',
-        'price_range': 'luxury'
-    },
-    {
-        'id': 5,
-        'name': 'Head & Shoulders Classic',
-        'brand': 'Head & Shoulders',
-        'category': 'shampoo',
-        'features': 'anti_dandruff,gentle,everyday',
-        'target_hair_types': 'oily,normal,sensitive',
-        'target_concerns': 'dandruff,itchiness,oily_scalp',
-        'ingredients': 'pyrithione_zinc,gentle_surfactants',
-        'price_range': 'budget'
-    },
-    {
-        'id': 6,
-        'name': 'Garnier Fructis Smoothing',
-        'brand': 'Garnier',
-        'category': 'conditioner',
-        'features': 'smoothing,anti_frizz,nourishing',
-        'target_hair_types': 'curly,frizzy,medium',
-        'target_concerns': 'frizz,unmanageability,roughness',
-        'ingredients': 'avocado_oil,shea_butter,vitamin_e',
-        'price_range': 'budget'
-    },
-    {
-        'id': 7,
-        'name': 'Moroccanoil Treatment',
-        'brand': 'Moroccanoil',
-        'category': 'treatment',
-        'features': 'shine,smoothing,heat_protection',
-        'target_hair_types': 'all,damaged,colored',
-        'target_concerns': 'dullness,frizz,heat_damage',
-        'ingredients': 'argan_oil,linseed_extract,antioxidants',
-        'price_range': 'luxury'
-    },
-    {
-        'id': 8,
-        'name': 'OGX Thick & Full Biotin',
-        'brand': 'OGX',
-        'category': 'shampoo',
-        'features': 'volume,thickening,strengthening',
-        'target_hair_types': 'fine,thin,damaged',
-        'target_concerns': 'flatness,weakness,lack_volume',
-        'ingredients': 'biotin,collagen,wheat_protein',
-        'price_range': 'mid'
-    }
-]
+# Load hair products dataset from Excel file
+def load_hair_products_dataset():
+    """Load hair products from Excel dataset file"""
+    try:
+        # Read the Excel file
+        df = pd.read_excel('Hackathon_dataset.xlsx')
+        
+        # Convert DataFrame to list of dictionaries
+        products = []
+        for index, row in df.iterrows():
+            product = {
+                'id': index + 1,
+                'name': str(row.get('Product Name', '')),
+                'brand': str(row.get('Brand', '')),
+                'category': str(row.get('Category', '')),
+                'features': str(row.get('Features', '')),
+                'target_hair_types': str(row.get('Target Hair Types', '')),
+                'target_concerns': str(row.get('Target Concerns', '')),
+                'ingredients': str(row.get('Ingredients', '')),
+                'price_range': str(row.get('Price Range', 'budget'))
+            }
+            products.append(product)
+        
+        return products
+    
+    except Exception as e:
+        print(f"Error loading dataset: {e}")
+        # Fallback to default dataset if Excel file fails to load
+        return [
+            {
+                'id': 1,
+                'name': 'Gliss Ultimate Repair',
+                'brand': 'Gliss',
+                'category': 'shampoo',
+                'features': 'repair,hydrating,strengthening',
+                'target_hair_types': 'damaged,colored,dry',
+                'target_concerns': 'damage,breakage,split_ends',
+                'ingredients': 'keratin,argan_oil,biotin',
+                'price_range': 'mid'
+            }
+        ]
+
+# Load the dataset
+HAIR_PRODUCTS_DATASET = load_hair_products_dataset()
+
+# Function to reload dataset
+def reload_dataset():
+    """Reload the dataset from Excel file"""
+    global HAIR_PRODUCTS_DATASET
+    HAIR_PRODUCTS_DATASET = load_hair_products_dataset()
+    return len(HAIR_PRODUCTS_DATASET)
 
 # Pydantic models
 class QuestionResponse(BaseModel):
@@ -598,6 +558,33 @@ async def get_all_sessions():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching sessions: {str(e)}")
+
+@app.post("/reload-dataset")
+async def reload_dataset_endpoint():
+    """Reload the hair products dataset from Excel file"""
+    try:
+        product_count = reload_dataset()
+        return {
+            "message": "Dataset reloaded successfully",
+            "product_count": product_count,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reloading dataset: {str(e)}")
+
+@app.get("/dataset-info")
+async def get_dataset_info():
+    """Get information about the loaded dataset"""
+    try:
+        return {
+            "total_products": len(HAIR_PRODUCTS_DATASET),
+            "brands": list(set([product['brand'] for product in HAIR_PRODUCTS_DATASET])),
+            "categories": list(set([product['category'] for product in HAIR_PRODUCTS_DATASET])),
+            "price_ranges": list(set([product['price_range'] for product in HAIR_PRODUCTS_DATASET])),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting dataset info: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
