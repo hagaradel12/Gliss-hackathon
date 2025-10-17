@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  
+  body {
+    @apply bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 min-h-screen;
+  }
+}
+
+@layer components {
+  .card-flip {
+    perspective: 1000px;
+  }
+  
+  .card-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    text-align: center;
+    transition: transform 0.6s;
+    transform-style: preserve-3d;
+  }
+  
+  .card-flip:hover .card-inner {
+    transform: rotateY(180deg);
+  }
+  
+  .card-front, .card-back {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    backface-visibility: hidden;
+    border-radius: 12px;
+    @apply flex items-center justify-center p-4;
+  }
+  
+  .card-back {
+    transform: rotateY(180deg);
+  }
+  
+  .glow-effect {
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+  }
+  
+  .treasure-orb {
+    background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #feca57);
+    background-size: 400% 400%;
+    animation: gradient-shift 3s ease infinite;
+  }
+  
+  @keyframes gradient-shift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  
+  .damage-slider {
+    background: linear-gradient(to right, #10b981 0%, #f59e0b 50%, #ef4444 100%);
+  }
+  
+  .swipe-container {
+    touch-action: pan-y;
+  }
+  
+  .drag-item {
+    transition: all 0.2s ease;
+  }
+  
+  .drag-item:hover {
+    transform: scale(1.05);
+  }
+  
+  .drag-item.dragging {
+    opacity: 0.5;
+    transform: rotate(5deg);
+  }
+  
+  .drop-zone {
+    transition: all 0.2s ease;
+    border: 2px dashed #d1d5db;
+  }
+  
+  .drop-zone.drag-over {
+    border-color: #8b5cf6;
+    background-color: rgba(139, 92, 246, 0.1);
+  }
+  
+  .toggle-button {
+    transition: all 0.3s ease;
+  }
+  
+  .toggle-button.active {
+    @apply bg-purple-500 text-white scale-110;
+  }
+  
+  .emoji-selector {
+    transition: all 0.2s ease;
+  }
+  
+  .emoji-selector:hover {
+    transform: scale(1.1);
+  }
+  
+  .emoji-selector.selected {
+    @apply ring-4 ring-purple-300 bg-purple-100;
+  }
+  
+  .character-silhouette {
+    transition: all 0.3s ease;
+  }
+  
+  .character-silhouette:hover {
+    transform: scale(1.05);
+  }
+  
+  .character-silhouette.selected {
+    @apply ring-4 ring-blue-300 bg-blue-100;
+  }
+  
+  .chat-bubble {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
+  }
+  
+  .progress-bar {
+    background: linear-gradient(90deg, #8b5cf6, #ec4899, #06b6d4);
+    background-size: 200% 100%;
+    animation: progress-shimmer 2s ease-in-out infinite;
+  }
+  
+  @keyframes progress-shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+}
