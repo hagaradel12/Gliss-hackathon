@@ -1,11 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    appDir: true,
-  },
-  images: {
-    domains: ['localhost'],
-  },
-}
+  reactStrictMode: true,
+  // remove experimental.appDir
+};
 
-module.exports = nextConfig
+module.exports = nextConfig;
