@@ -4,6 +4,8 @@ import MatchingQuestion from "@/components/questions/matching-question"
 import RangeQuestion from "@/components/questions/range-question"
 import MCQQuestion from "@/components/questions/mcq-question"
 import MultiSelectQuestion from "@/components/questions/multi-select-question"
+import SlideQuestion from "./questions/slider"
+import DreamGoalQuestion from "./questions/bubbleQuestion"
 
 interface QuestionProps {
   question: any
@@ -26,7 +28,8 @@ export default function Question({ question, answer, onAnswer }: QuestionProps) 
       {question.type === "multi-select" && (
         <MultiSelectQuestion options={question.options} answer={answer} onAnswer={onAnswer} />
       )}
-      {question.type === "range" && <RangeQuestion options={question.options} answer={answer} onAnswer={onAnswer} />}
+      {question.type === "slide" && <SlideQuestion options={question.options} answer={answer} onAnswer={onAnswer} />}
+      {question.type === "bubble" && <DreamGoalQuestion options={question.options} answer={answer} onAnswer={onAnswer} />}
     </div>
   )
 }

@@ -25,9 +25,9 @@ const FALLBACK_QUESTIONS = [
   {
     id: 2,
     question: "Does your hair get tangled easily?",
-    type: "range",
+    type: "mcq",
     options: [
-      { label: "Yesss", value: "yes_always" },
+      { label: "Yes", value: "yes_always" },
       { label: "Sometimes", value: "sometimes" },
       { label: "Not really", value: "not_really" },
       { label: "Nope, it's chill ✨", value: "no_chill" },
@@ -50,11 +50,11 @@ const FALLBACK_QUESTIONS = [
     question: "What do you usually do to your hair?",
     type: "multi-select",
     options: [
-      { label: "Bleach / color often 🎨", value: "bleach_color_often" },
-      { label: "Heat styling weekly/daily 🔥", value: "heat_styling_weekly_daily" },
-      { label: "Heat styling occasionally 💁‍♀", value: "heat_styling_occasionally" },
-      { label: "Chemical treatments (perm, relax, keratin, etc.)", value: "chemical_treatments" },
-      { label: "None of the above – I'm low maintenance 😇", value: "none_low_maintenance" },
+      { label: "Bleach", value: "bleach_color_often" },
+      { label: "Heat styling weekly/daily", value: "heat_styling_weekly_daily" },
+      { label: "Heat styling occasionally", value: "heat_styling_occasionally" },
+      { label: "Chemical treatments", value: "chemical_treatments" },
+      { label: "None", value: "none_low_maintenance" },
     ],
   },
   {
@@ -62,13 +62,12 @@ const FALLBACK_QUESTIONS = [
     question: "What's your dream hair goal?",
     type: "mcq",
     options: [
-      { label: "Strong & healthy 💪✨", value: "strong_healthy" },
-      { label: "Long & luscious Rapunzel vibes 💫", value: "long_luscious" },
-      { label: "Smooth & frizz-free 💃", value: "smooth_frizz_free" },
-      { label: "Shiny & glossy like glass hair 🔥", value: "shiny_glossy" },
-      { label: "Bouncy volume & life 🌸", value: "bouncy_volume" },
-      { label: "Defined curls/waves 💕", value: "defined_curls_waves" },
-      { label: "Damage repair + healing 🛠", value: "damage_repair_healing" },
+      { label: "Strong & healthy", value: "strong_healthy" },
+      { label: "Long", value: "long_luscious" },
+      { label: "Smooth & frizz-free", value: "smooth_frizz_free" },
+      { label: "Shiny", value: "shiny_glossy" },
+      { label: "Bouncy volume & life", value: "bouncy_volume" },
+      { label: "Damage repair + healing", value: "damage_repair_healing" },
     ],
   },
   {
@@ -93,34 +92,34 @@ export default function QuizPage({ onComplete }: QuizPageProps) {
   const [questions, setQuestions] = useState(FALLBACK_QUESTIONS)
   const [loading, setLoading] = useState(false)
 
-  // Try to fetch questions from backend on component mount
-  useEffect(() => {
-    const fetchQuestions = async () => {
-      try {
-        const response = await fetch('http://localhost:8000/questions')
-        if (response.ok) {
-          const data = await response.json()
-          const backendQuestions = data.questions
+  // // Try to fetch questions from backend on component mount
+  // useEffect(() => {
+  //   const fetchQuestions = async () => {
+  //     try {
+  //       const response = await fetch('http://localhost:8000/questions')
+  //       if (response.ok) {
+  //         const data = await response.json()
+  //         const backendQuestions = data.questions
           
-          // Transform backend questions to frontend format
-          const transformedQuestions = backendQuestions.map((q: any) => ({
-            id: q.id,
-            question: q.title,
-            type: q.type === 'multiple_choice' ? 'multi-select' : 'mcq',
-            options: q.options.map((opt: any) => ({
-              label: opt.label,
-              value: opt.value
-            }))
-          }))
-          setQuestions(transformedQuestions)
-        }
-      } catch (error) {
-        console.log('Using fallback questions')
-      }
-    }
+  //         // Transform backend questions to frontend format
+  //         const transformedQuestions = backendQuestions.map((q: any) => ({
+  //           id: q.id,
+  //           question: q.title,
+  //           type: q.type === 'multiple_choice' ? 'multi-select' : 'mcq',
+  //           options: q.options.map((opt: any) => ({
+  //             label: opt.label,
+  //             value: opt.value
+  //           }))
+  //         }))
+  //         setQuestions(transformedQuestions)
+  //       }
+  //     } catch (error) {
+  //       console.log('Using fallback questions')
+  //     }
+  //   }
 
-    fetchQuestions()
-  }, [])
+  //   fetchQuestions()
+  // }, [])
 
   const currentQuestion = questions[currentQuestionIndex]
   const progress = ((currentQuestionIndex + 1) / questions.length) * 100
